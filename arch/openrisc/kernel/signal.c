@@ -60,6 +60,8 @@ static int restore_sigcontext(struct pt_regs *regs,
 	/* make sure the SM-bit is cleared so user-mode cannot fool us */
 	regs->sr &= ~SPR_SR_SM;
 
+	regs->orig_gpr11 = -1;	/* Avoid syscall restart checks */
+
 	/* TODO: the other ports use regs->orig_XX to disable syscall checks
 	 * after this completes, but we don't use that mechanism. maybe we can
 	 * use it now ?
@@ -110,6 +112,9 @@ static int setup_sigcontext(struct pt_regs *regs, struct sigcontext __user *sc)
 	int err = 0;
 
 	/* copy the regs */
+	/* There should be no need to save callee-saved registers here...
+	 * ...but we save them anyway.  Revisit this
+	 */
 	err |= __copy_to_user(sc->regs.gpr, regs, 32 * sizeof(unsigned long));
 	err |= __copy_to_user(&sc->regs.pc, &regs->pc, sizeof(unsigned long));
 	err |= __copy_to_user(&sc->regs.sr, &regs->sr, sizeof(unsigned long));
@@ -227,27 +232,6 @@ handle_signal(unsigned long sig,
 {
 	int ret;
 
-	/* Are we from a system call? */
-	if (syscall_get_nr(current, regs) >= 0) {
-		/* If so, check system call retarting.. */
-		switch (syscall_get_error(current, regs)) {
-		case -ERESTART_RESTARTBLOCK:
-		case -ERESTARTNOHAND:
-			regs->gpr[11] = -EINTR;
-			break;
-		case -ERESTARTSYS:
-			if (!(ka->sa.sa_flags & SA_RESTART)) {
-				regs->gpr[11] = -EINTR;
-				break;
-			}
-		/* fallthrough */
-		case -ERESTARTNOINTR:
-			regs->gpr[11] = regs->orig_gpr11;
-			regs->pc -= 4;
-			break;
-		}
-	}
-
 	ret = setup_rt_frame(sig, ka, info, sigmask_to_save(), regs);
 	if (ret)
 		return;
@@ -268,71 +252,106 @@ handle_signal(unsigned long sig,
  * mode below.
  */
 
-void do_signal(struct pt_regs *regs)
+int do_signal(struct pt_regs *regs, int syscall)
 {
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
-	sigset_t *oldset;
+	unsigned long continue_addr = 0;
+	unsigned long restart_addr = 0;
+	unsigned long retval = 0;
+	int restart = 0;
 
-	/*
-	 * We want the common case to go fast, which
-	 * is why we may in certain cases get here from
-	 * kernel mode. Just return without doing anything
-	 * if so.
-	 */
-	if (!user_mode(regs))
-		return;
+	if (syscall) {
+		continue_addr = regs->pc;
+		restart_addr = continue_addr - 4;
+		retval = regs->gpr[11];
 
-	if (test_thread_flag(TIF_RESTORE_SIGMASK))
-		oldset = &current->saved_sigmask;
-	else
-		oldset = &current->blocked;
-
-	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
-	if (signr > 0) {
-		if (!handle_signal(signr, &info, &ka, regs)) {
-			/*
-			 * A signal was successfully delivered; the saved
-			 * sigmask will have been stored in the signal frame,
-			 * and will be restored by sigreturn, so we can simply
-			 * clear the TIF_RESTORE_SIGMASK flag.
-			 */
-			clear_thread_flag(TIF_RESTORE_SIGMASK);
-		}
-		return;
-	}
-
-	/* Did we come from a system call? */
-	if (syscall_get_nr(current, regs) >= 0) {
-		/* Restart the system call */
-		switch (syscall_get_error(current, regs)) {
+		/*
+		 * Setup syscall restart here so that a debugger will
+		 * see the already changed PC.
+		 */
+		switch (retval) {
+		case -ERESTART_RESTARTBLOCK:
+			restart = -2;
+			/* Fall through */
 		case -ERESTARTNOHAND:
 		case -ERESTARTSYS:
 		case -ERESTARTNOINTR:
+			restart++;
 			regs->gpr[11] = regs->orig_gpr11;
-			regs->pc -= 4;
-			break;
-
-		case -ERESTART_RESTARTBLOCK:
-			regs->gpr[11] = __NR_restart_syscall;
-			regs->pc -= 4;
+			regs->pc = restart_addr;
 			break;
 		}
 	}
 
-	restore_saved_sigmask();
+	/*
+	 * Get the signal to deliver.  When running under ptrace, at this
+	 * point the debugger may change all our registers ...
+	 */
+	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
+	/*
+	 * Depending on the signal settings we may need to revert the
+	 * decision to restart the system call.  But skip this if a
+	 * debugger has chosen to restart at a different PC.
+	 */
+	if (signr > 0) {
+		if (unlikely(restart) && regs->pc == restart_addr) {
+			if (retval == -ERESTARTNOHAND ||
+			    retval == -ERESTART_RESTARTBLOCK
+			    || (retval == -ERESTARTSYS
+			        && !(ka.sa.sa_flags & SA_RESTART))) {
+				/* No automatic restart */
+				regs->gpr[11] = -EINTR;
+				regs->pc = continue_addr;
+			}
+		}
 
+		handle_signal(signr, &info, &ka, regs);
+	} else {
+		/* no handler */
+		restore_saved_sigmask();
+		/*
+		 * Restore pt_regs PC as syscall restart will be handled by
+		 * kernel without return to userspace
+		 */
+		if (unlikely(restart) && regs->pc == restart_addr) {
+			regs->pc = continue_addr;
+			return restart;
+		}
+	}
+
+	return 0;
 }
 
-asmlinkage void do_notify_resume(struct pt_regs *regs)
+asmlinkage int
+do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 {
-	if (current_thread_info()->flags
-				& (_TIF_SIGPENDING | _TIF_RESTORE_SIGMASK))
-		do_signal(regs);
-
-	if (current_thread_info()->flags & _TIF_NOTIFY_RESUME) {
-		clear_thread_flag(TIF_NOTIFY_RESUME);
-		tracehook_notify_resume(regs);
-	}
+	do {
+		if (likely(thread_flags & _TIF_NEED_RESCHED)) {
+			schedule();
+		} else {
+			if (unlikely(!user_mode(regs)))
+				return 0;
+			local_irq_enable();
+			if (thread_flags & _TIF_SIGPENDING) {
+				int restart = do_signal(regs, syscall);
+				if (unlikely(restart)) {
+					/*
+					 * Restart without handlers.
+					 * Deal with it without leaving
+					 * the kernel space.
+					 */
+					return restart;
+				}
+				syscall = 0;
+			} else {
+				clear_thread_flag(TIF_NOTIFY_RESUME);
+				tracehook_notify_resume(regs);
+			}
+		}
+		local_irq_disable();
+		thread_flags = current_thread_info()->flags;
+	} while (thread_flags & _TIF_WORK_MASK);
+	return 0;
 }
