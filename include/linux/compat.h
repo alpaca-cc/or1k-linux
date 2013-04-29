@@ -68,14 +68,12 @@
 #ifndef compat_user_stack_pointer
 #define compat_user_stack_pointer() current_user_stack_pointer()
 #endif
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 #ifndef compat_sigaltstack	/* we'll need that for MIPS */
 typedef struct compat_sigaltstack {
 	compat_uptr_t			ss_sp;
 	int				ss_flags;
 	compat_size_t			ss_size;
 } compat_stack_t;
-#endif
 #endif
 
 #define compat_jiffies_to_clock_t(x)	\
@@ -142,13 +140,12 @@ typedef struct {
 	compat_sigset_word	sig[_COMPAT_NSIG_WORDS];
 } compat_sigset_t;
 
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGACTION
 struct compat_sigaction {
-#ifndef __ARCH_HAS_ODD_SIGACTION
+#ifndef __ARCH_HAS_IRIX_SIGACTION
 	compat_uptr_t			sa_handler;
 	compat_ulong_t			sa_flags;
 #else
-	compat_ulong_t			sa_flags;
+	compat_uint_t			sa_flags;
 	compat_uptr_t			sa_handler;
 #endif
 #ifdef __ARCH_HAS_SA_RESTORER
@@ -156,7 +153,6 @@ struct compat_sigaction {
 #endif
 	compat_sigset_t			sa_mask __packed;
 };
-#endif
 
 /*
  * These functions operate strictly on struct compat_time*
@@ -363,6 +359,7 @@ asmlinkage ssize_t compat_sys_preadv(unsigned long fd,
 asmlinkage ssize_t compat_sys_pwritev(unsigned long fd,
 		const struct compat_iovec __user *vec,
 		unsigned long vlen, u32 pos_low, u32 pos_high);
+asmlinkage long comat_sys_lseek(unsigned int, compat_off_t, unsigned int);
 
 asmlinkage long compat_sys_execve(const char __user *filename, const compat_uptr_t __user *argv,
 		     const compat_uptr_t __user *envp);
@@ -539,6 +536,8 @@ asmlinkage long compat_sys_openat(int dfd, const char __user *filename,
 asmlinkage long compat_sys_open_by_handle_at(int mountdirfd,
 					     struct file_handle __user *handle,
 					     int flags);
+asmlinkage long compat_sys_truncate(const char __user *, compat_off_t);
+asmlinkage long compat_sys_ftruncate(unsigned int, compat_ulong_t);
 asmlinkage long compat_sys_pselect6(int n, compat_ulong_t __user *inp,
 				    compat_ulong_t __user *outp,
 				    compat_ulong_t __user *exp,
@@ -623,27 +622,19 @@ asmlinkage long compat_sys_rt_sigtimedwait(compat_sigset_t __user *uthese,
 		struct compat_timespec __user *uts, compat_size_t sigsetsize);
 asmlinkage long compat_sys_rt_sigsuspend(compat_sigset_t __user *unewset,
 					 compat_size_t sigsetsize);
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPROCMASK
 asmlinkage long compat_sys_rt_sigprocmask(int how, compat_sigset_t __user *set,
 					  compat_sigset_t __user *oset,
 					  compat_size_t sigsetsize);
-#endif
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPENDING
 asmlinkage long compat_sys_rt_sigpending(compat_sigset_t __user *uset,
 					 compat_size_t sigsetsize);
-#endif
 #ifndef CONFIG_ODD_RT_SIGACTION
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGACTION
 asmlinkage long compat_sys_rt_sigaction(int,
 				 const struct compat_sigaction __user *,
 				 struct compat_sigaction __user *,
 				 compat_size_t);
 #endif
-#endif
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGQUEUEINFO
 asmlinkage long compat_sys_rt_sigqueueinfo(compat_pid_t pid, int sig,
 				struct compat_siginfo __user *uinfo);
-#endif
 asmlinkage long compat_sys_sysinfo(struct compat_sysinfo __user *info);
 asmlinkage long compat_sys_ioctl(unsigned int fd, unsigned int cmd,
 				 unsigned long arg);
@@ -694,13 +685,11 @@ asmlinkage ssize_t compat_sys_process_vm_writev(compat_pid_t pid,
 
 asmlinkage long compat_sys_sendfile(int out_fd, int in_fd,
 				    compat_off_t __user *offset, compat_size_t count);
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 asmlinkage long compat_sys_sigaltstack(const compat_stack_t __user *uss_ptr,
 				       compat_stack_t __user *uoss_ptr);
 
 int compat_restore_altstack(const compat_stack_t __user *uss);
 int __compat_save_altstack(compat_stack_t __user *, unsigned long);
-#endif
 
 asmlinkage long compat_sys_sched_rr_get_interval(compat_pid_t pid,
 						 struct compat_timespec __user *interval);

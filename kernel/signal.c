@@ -485,6 +485,9 @@ flush_signal_handlers(struct task_struct *t, int force_default)
 		if (force_default || ka->sa.sa_handler != SIG_IGN)
 			ka->sa.sa_handler = SIG_DFL;
 		ka->sa.sa_flags = 0;
+#ifdef __ARCH_HAS_SA_RESTORER
+		ka->sa.sa_restorer = NULL;
+#endif
 		sigemptyset(&ka->sa.sa_mask);
 		ka++;
 	}
@@ -1157,11 +1160,11 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 static void print_fatal_signal(int signr)
 {
 	struct pt_regs *regs = signal_pt_regs();
-	printk("%s/%d: potentially unexpected fatal signal %d.\n",
+	printk(KERN_INFO "%s/%d: potentially unexpected fatal signal %d.\n",
 		current->comm, task_pid_nr(current), signr);
 
 #if defined(__i386__) && !defined(__arch_um__)
-	printk("code at %08lx: ", regs->ip);
+	printk(KERN_INFO "code at %08lx: ", regs->ip);
 	{
 		int i;
 		for (i = 0; i < 16; i++) {
@@ -1169,11 +1172,11 @@ static void print_fatal_signal(int signr)
 
 			if (get_user(insn, (unsigned char *)(regs->ip + i)))
 				break;
-			printk("%02x ", insn);
+			printk(KERN_CONT "%02x ", insn);
 		}
 	}
+	printk(KERN_CONT "\n");
 #endif
-	printk("\n");
 	preempt_disable();
 	show_regs(regs);
 	preempt_enable();
@@ -1632,6 +1635,7 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	unsigned long flags;
 	struct sighand_struct *psig;
 	bool autoreap = false;
+	cputime_t utime, stime;
 
 	BUG_ON(sig == -1);
 
@@ -1669,8 +1673,9 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 				       task_uid(tsk));
 	rcu_read_unlock();
 
-	info.si_utime = cputime_to_clock_t(tsk->utime + tsk->signal->utime);
-	info.si_stime = cputime_to_clock_t(tsk->stime + tsk->signal->stime);
+	task_cputime(tsk, &utime, &stime);
+	info.si_utime = cputime_to_clock_t(utime + tsk->signal->utime);
+	info.si_stime = cputime_to_clock_t(stime + tsk->signal->stime);
 
 	info.si_status = tsk->exit_code & 0x7f;
 	if (tsk->exit_code & 0x80)
@@ -1734,6 +1739,7 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	unsigned long flags;
 	struct task_struct *parent;
 	struct sighand_struct *sighand;
+	cputime_t utime, stime;
 
 	if (for_ptracer) {
 		parent = tsk->parent;
@@ -1752,8 +1758,9 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	info.si_uid = from_kuid_munged(task_cred_xxx(parent, user_ns), task_uid(tsk));
 	rcu_read_unlock();
 
-	info.si_utime = cputime_to_clock_t(tsk->utime);
-	info.si_stime = cputime_to_clock_t(tsk->stime);
+	task_cputime(tsk, &utime, &stime);
+	info.si_utime = cputime_to_clock_t(utime);
+	info.si_stime = cputime_to_clock_t(stime);
 
  	info.si_code = why;
  	switch (why) {
@@ -2622,7 +2629,6 @@ SYSCALL_DEFINE4(rt_sigprocmask, int, how, sigset_t __user *, nset,
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPROCMASK
 COMPAT_SYSCALL_DEFINE4(rt_sigprocmask, int, how, compat_sigset_t __user *, nset,
 		compat_sigset_t __user *, oset, compat_size_t, sigsetsize)
 {
@@ -2650,7 +2656,7 @@ COMPAT_SYSCALL_DEFINE4(rt_sigprocmask, int, how, compat_sigset_t __user *, nset,
 	if (oset) {
 		compat_sigset_t old32;
 		sigset_to_compat(&old32, &old_set);
-		if (copy_to_user(oset, &old_set, sizeof(sigset_t)))
+		if (copy_to_user(oset, &old32, sizeof(compat_sigset_t)))
 			return -EFAULT;
 	}
 	return 0;
@@ -2659,7 +2665,6 @@ COMPAT_SYSCALL_DEFINE4(rt_sigprocmask, int, how, compat_sigset_t __user *, nset,
 				  (sigset_t __user *)oset, sigsetsize);
 #endif
 }
-#endif
 #endif
 
 static int do_sigpending(void *set, unsigned long sigsetsize)
@@ -2680,7 +2685,7 @@ static int do_sigpending(void *set, unsigned long sigsetsize)
 /**
  *  sys_rt_sigpending - examine a pending signal that has been raised
  *			while blocked
- *  @set: stores pending signals
+ *  @uset: stores pending signals
  *  @sigsetsize: size of sigset_t type or larger
  */
 SYSCALL_DEFINE2(rt_sigpending, sigset_t __user *, uset, size_t, sigsetsize)
@@ -2693,7 +2698,6 @@ SYSCALL_DEFINE2(rt_sigpending, sigset_t __user *, uset, size_t, sigsetsize)
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGPENDING
 COMPAT_SYSCALL_DEFINE2(rt_sigpending, compat_sigset_t __user *, uset,
 		compat_size_t, sigsetsize)
 {
@@ -2712,7 +2716,6 @@ COMPAT_SYSCALL_DEFINE2(rt_sigpending, compat_sigset_t __user *, uset,
 	return sys_rt_sigpending((sigset_t __user *)uset, sigsetsize);
 #endif
 }
-#endif
 #endif
 
 #ifndef HAVE_ARCH_COPY_SIGINFO_TO_USER
@@ -2945,7 +2948,7 @@ do_send_specific(pid_t tgid, pid_t pid, int sig, struct siginfo *info)
 
 static int do_tkill(pid_t tgid, pid_t pid, int sig)
 {
-	struct siginfo info;
+	struct siginfo info = {};
 
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2996,7 +2999,8 @@ static int do_rt_sigqueueinfo(pid_t pid, int sig, siginfo_t *info)
 	/* Not even root can pretend to send signals from the kernel.
 	 * Nor can they impersonate a kill()/tgkill(), which adds source info.
 	 */
-	if (info->si_code >= 0 || info->si_code == SI_TKILL) {
+	if ((info->si_code >= 0 || info->si_code == SI_TKILL) &&
+	    (task_pid_vnr(current) != pid)) {
 		/* We used to allow any < 0 si_code */
 		WARN_ON_ONCE(info->si_code < 0);
 		return -EPERM;
@@ -3023,7 +3027,6 @@ SYSCALL_DEFINE3(rt_sigqueueinfo, pid_t, pid, int, sig,
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGQUEUEINFO
 COMPAT_SYSCALL_DEFINE3(rt_sigqueueinfo,
 			compat_pid_t, pid,
 			int, sig,
@@ -3036,7 +3039,6 @@ COMPAT_SYSCALL_DEFINE3(rt_sigqueueinfo,
 	return do_rt_sigqueueinfo(pid, sig, &info);
 }
 #endif
-#endif
 
 static int do_rt_tgsigqueueinfo(pid_t tgid, pid_t pid, int sig, siginfo_t *info)
 {
@@ -3047,7 +3049,8 @@ static int do_rt_tgsigqueueinfo(pid_t tgid, pid_t pid, int sig, siginfo_t *info)
 	/* Not even root can pretend to send signals from the kernel.
 	 * Nor can they impersonate a kill()/tgkill(), which adds source info.
 	 */
-	if (info->si_code >= 0 || info->si_code == SI_TKILL) {
+	if (((info->si_code >= 0 || info->si_code == SI_TKILL)) &&
+	    (task_pid_vnr(current) != pid)) {
 		/* We used to allow any < 0 si_code */
 		WARN_ON_ONCE(info->si_code < 0);
 		return -EPERM;
@@ -3128,7 +3131,7 @@ int do_sigaction(int sig, struct k_sigaction *act, struct k_sigaction *oact)
 	return 0;
 }
 
-int 
+static int 
 do_sigaltstack (const stack_t __user *uss, stack_t __user *uoss, unsigned long sp)
 {
 	stack_t oss;
@@ -3193,12 +3196,10 @@ do_sigaltstack (const stack_t __user *uss, stack_t __user *uoss, unsigned long s
 out:
 	return error;
 }
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 SYSCALL_DEFINE2(sigaltstack,const stack_t __user *,uss, stack_t __user *,uoss)
 {
 	return do_sigaltstack(uss, uoss, current_user_stack_pointer());
 }
-#endif
 
 int restore_altstack(const stack_t __user *uss)
 {
@@ -3216,7 +3217,6 @@ int __save_altstack(stack_t __user *uss, unsigned long sp)
 }
 
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_SIGALTSTACK
 COMPAT_SYSCALL_DEFINE2(sigaltstack,
 			const compat_stack_t __user *, uss_ptr,
 			compat_stack_t __user *, uoss_ptr)
@@ -3265,7 +3265,6 @@ int __compat_save_altstack(compat_stack_t __user *uss, unsigned long sp)
 		__put_user(sas_ss_flags(sp), &uss->ss_flags) |
 		__put_user(t->sas_ss_size, &uss->ss_size);
 }
-#endif
 #endif
 
 #ifdef __ARCH_WANT_SYS_SIGPENDING
@@ -3367,7 +3366,6 @@ out:
 	return ret;
 }
 #ifdef CONFIG_COMPAT
-#ifdef CONFIG_GENERIC_COMPAT_RT_SIGACTION
 COMPAT_SYSCALL_DEFINE4(rt_sigaction, int, sig,
 		const struct compat_sigaction __user *, act,
 		struct compat_sigaction __user *, oact,
@@ -3413,7 +3411,6 @@ COMPAT_SYSCALL_DEFINE4(rt_sigaction, int, sig,
 	}
 	return ret;
 }
-#endif
 #endif
 #endif /* !CONFIG_ODD_RT_SIGACTION */
 
@@ -3561,7 +3558,6 @@ int sigsuspend(sigset_t *set)
 	return -ERESTARTNOHAND;
 }
 
-#ifdef __ARCH_WANT_SYS_RT_SIGSUSPEND
 /**
  *  sys_rt_sigsuspend - replace the signal mask for a value with the
  *	@unewset value until a signal is received
@@ -3601,7 +3597,6 @@ COMPAT_SYSCALL_DEFINE2(rt_sigsuspend, compat_sigset_t __user *, unewset, compat_
 	return sys_rt_sigsuspend((sigset_t __user *)unewset, sigsetsize);
 #endif
 }
-#endif
 #endif
 
 #ifdef CONFIG_OLD_SIGSUSPEND
