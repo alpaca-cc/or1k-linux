@@ -259,6 +259,7 @@ config SPI_FSL_ESPI
 
 config SPI_OCSIMPLE
 	tristate "OpenCores Simple SPI Controller"
+	depends on OPENRISC
 	help
 	  Driver for Simple SPI core from OpenCores.org 
 
