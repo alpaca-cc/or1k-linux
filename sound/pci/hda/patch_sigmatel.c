@@ -417,9 +417,11 @@ static void stac_update_outputs(struct hda_codec *codec)
 			val &= ~spec->eapd_mask;
 		else
 			val |= spec->eapd_mask;
-		if (spec->gpio_data != val)
+		if (spec->gpio_data != val) {
+			spec->gpio_data = val;
 			stac_gpio_set(codec, spec->gpio_mask, spec->gpio_dir,
 				      val);
+		}
 	}
 }
 
@@ -2233,6 +2235,10 @@ static const struct snd_pci_quirk stac92hd83xxx_fixup_tbl[] = {
 			  "HP Folio", STAC_92HD83XXX_HP_MIC_LED),
 	SND_PCI_QUIRK_MASK(PCI_VENDOR_ID_HP, 0xff00, 0x1900,
 			  "HP", STAC_92HD83XXX_HP_MIC_LED),
+	SND_PCI_QUIRK_MASK(PCI_VENDOR_ID_HP, 0xff00, 0x2000,
+			  "HP", STAC_92HD83XXX_HP_MIC_LED),
+	SND_PCI_QUIRK_MASK(PCI_VENDOR_ID_HP, 0xff00, 0x2100,
+			  "HP", STAC_92HD83XXX_HP_MIC_LED),
 	SND_PCI_QUIRK(PCI_VENDOR_ID_HP, 0x3388,
 			  "HP", STAC_92HD83XXX_HP_cNB11_INTQUAD),
 	SND_PCI_QUIRK(PCI_VENDOR_ID_HP, 0x3389,
@@ -3227,7 +3233,7 @@ static const struct hda_fixup stac927x_fixups[] = {
 			/* configure the analog microphone on some laptops */
 			{ 0x0c, 0x90a79130 },
 			/* correct the front output jack as a hp out */
-			{ 0x0f, 0x0227011f },
+			{ 0x0f, 0x0221101f },
 			/* correct the front input jack as a mic */
 			{ 0x0e, 0x02a79130 },
 			{}
@@ -3608,20 +3614,18 @@ static int stac_parse_auto_config(struct hda_codec *codec)
 static int stac_init(struct hda_codec *codec)
 {
 	struct sigmatel_spec *spec = codec->spec;
-	unsigned int gpio;
 	int i;
 
 	/* override some hints */
 	stac_store_hints(codec);
 
 	/* set up GPIO */
-	gpio = spec->gpio_data;
 	/* turn on EAPD statically when spec->eapd_switch isn't set.
 	 * otherwise, unsol event will turn it on/off dynamically
 	 */
 	if (!spec->eapd_switch)
-		gpio |= spec->eapd_mask;
-	stac_gpio_set(codec, spec->gpio_mask, spec->gpio_dir, gpio);
+		spec->gpio_data |= spec->eapd_mask;
+	stac_gpio_set(codec, spec->gpio_mask, spec->gpio_dir, spec->gpio_data);
 
 	snd_hda_gen_init(codec);
 
@@ -3707,14 +3711,6 @@ static void stac927x_proc_hook(struct snd_info_buffer *buffer,
 #endif
 
 #ifdef CONFIG_PM
-static int stac_resume(struct hda_codec *codec)
-{
-	codec->patch_ops.init(codec);
-	snd_hda_codec_resume_amp(codec);
-	snd_hda_codec_resume_cache(codec);
-	return 0;
-}
-
 static int stac_suspend(struct hda_codec *codec)
 {
 	stac_shutup(codec);
@@ -3743,7 +3739,6 @@ static void stac_set_power_state(struct hda_codec *codec, hda_nid_t fg,
 }
 #else
 #define stac_suspend		NULL
-#define stac_resume		NULL
 #define stac_set_power_state	NULL
 #endif /* CONFIG_PM */
 
@@ -3755,7 +3750,6 @@ static const struct hda_codec_ops stac_patch_ops = {
 	.unsol_event = snd_hda_jack_unsol_event,
 #ifdef CONFIG_PM
 	.suspend = stac_suspend,
-	.resume = stac_resume,
 #endif
 	.reboot_notify = stac_shutup,
 };
@@ -3921,6 +3915,7 @@ static void stac_setup_gpio(struct hda_codec *codec)
 {
 	struct sigmatel_spec *spec = codec->spec;
 
+	spec->gpio_mask |= spec->eapd_mask;
 	if (spec->gpio_led) {
 		if (!spec->vref_mute_led_nid) {
 			spec->gpio_mask |= spec->gpio_led;
