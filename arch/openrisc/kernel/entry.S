@@ -1125,7 +1125,29 @@ ENTRY(sys_rt_sigreturn)
  */
 
 ENTRY(sys_or1k_atomic)
-	/* FIXME: This ignores r3 and always does an XCHG */
+	/* TODO: validate mem ptr(s) */
+	/* TODO: use some kind of jmp table? */
+	l.sfeqi r3,1
+	l.bf    _atomic_swap
+	 l.sfeqi r3,2
+	l.bf    _atomic_cmpxchg
+	 l.sfeqi r3,3
+	l.bf    _atomic_xchg
+	 l.sfeqi r3,4
+	l.bf    _atomic_add
+	 l.sfeqi r3,5
+	l.bf    _atomic_decpos
+	 l.sfeqi r3,6
+	l.bf    _atomic_and
+	 l.sfeqi r3,7
+	l.bf    _atomic_or
+	 l.sfeqi r3,8
+	l.bf    _atomic_max
+	 l.sfeqi r3,9
+	l.bf    _atomic_min
+	 l.nop
+
+_atomic_swap:
 	DISABLE_INTERRUPTS(r17,r19)
 	l.lwz	r29,0(r4)
 	l.lwz	r27,0(r5)
@@ -1134,5 +1156,93 @@ ENTRY(sys_or1k_atomic)
 	ENABLE_INTERRUPTS(r17)
 	l.jr	r9
 	 l.or	r11,r0,r0
+
+_atomic_cmpxchg:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.sfeq  r29,r5
+	l.bnf   _atomic_cmpxchg_done
+	l.nop
+
+	l.sw    0(r4),r6
+_atomic_cmpxchg_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_xchg:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.sw    0(r4),r5
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_add:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.add   r27,r29,r5
+	l.sw    0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_decpos:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.sfgtsi r29,0
+	l.bnf   _atomic_decpos_done
+	l.addi  r27,r29,-1
+
+	l.sw    0(r4),r27
+_atomic_decpos_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_and:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.and   r27,r29,r5
+	l.sw    0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_or:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.or    r27,r29,r5
+	l.sw    0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_max:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.sfltu r29,r5
+	l.bnf   _atomic_max_done
+	l.nop
+
+	l.sw    0(r4),r5
+_atomic_max_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
+_atomic_min:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz   r29,0(r4)
+	l.sfgtu r29,r5
+	l.bnf   _atomic_min_done
+	l.nop
+
+	l.sw    0(r4),r5
+_atomic_min_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr    r9
+	 l.or   r11,r29,r0
+
 
 /* ============================================================[ EOF ]=== */
