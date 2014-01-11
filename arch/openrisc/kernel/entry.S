@@ -1113,38 +1113,97 @@ ENTRY(sys_rt_sigreturn)
 /* This is a catch-all syscall for atomic instructions for the OpenRISC 1000.
  * The functions takes a variable number of parameters depending on which
  * particular flavour of atomic you want... parameter 1 is a flag identifying
- * the atomic in question.  Currently, this function implements the
- * following variants:
+ * the atomic in question.
  *
- * XCHG:
+ * Flag value 0 can be used and it is recommended that the next atomic
+ * instruction to be implemented uses it. Currently it is a no-op.
+ *
+ * Currently, this function implements the following variants:
+ *
+ * SWAP:
  *  @flag: 1
  *  @ptr1:
  *  @ptr2:
- * Atomically exchange the values in pointers 1 and 2.
+ * Atomically swap the values in pointers 1 and 2.
+ *
+ * CMPXCHG:
+ *  @flag: 2
+ *  @ptr: mem
+ *  @val1: old
+ *  @val2: new
+ * Writes new to *mem if *mem == old. Returns old *mem.
+ *
+ * XCHG:
+ *  @flag: 3
+ *  @ptr: mem
+ *  @val1: new
+ * Store NEW in *MEM and return the old value.
+ *
+ * ADD:
+ *  @flag: 4
+ *  @ptr: mem
+ *  @val1: val
+ * Add VAL to *MEM and return the old value of *MEM.
+ *
+ * DECPOS:
+ *  @flag: 5
+ *  @ptr: mem
+ * Decrement *MEM if it is > 0, and return the old value.
+ *
+ * AND:
+ *  @flag: 6
+ *  @ptr: mem
+ *  @val1: mask
+ * Atomically *mem &= mask and return the old value of *mem.
+ *
+ * OR:
+ *  @flag: 7
+ *  @ptr: mem
+ *  @val1: mask
+ * Atomically *mem |= mask and return the old value of *mem.
+ *
+ * UMAX: unsigned
+ *  @flag: 8
+ *  @ptr: mem
+ *  @val1: val
+ * If *mem < val, set *mem = max. Returns old value of *mem.
+ *
+ * UMIN: unsigned
+ *  @flag: 9
+ *  @ptr: mem
+ *  @val1: mask
+ * If *mem > val, set *mem = max. Returns old value of *mem.
  *
  */
-
 ENTRY(sys_or1k_atomic)
 	/* TODO: validate mem ptr(s) */
-	/* TODO: use some kind of jmp table? */
-	l.sfeqi r3,1
-	l.bf    _atomic_swap
-	 l.sfeqi r3,2
-	l.bf    _atomic_cmpxchg
-	 l.sfeqi r3,3
-	l.bf    _atomic_xchg
-	 l.sfeqi r3,4
-	l.bf    _atomic_add
-	 l.sfeqi r3,5
-	l.bf    _atomic_decpos
-	 l.sfeqi r3,6
-	l.bf    _atomic_and
-	 l.sfeqi r3,7
-	l.bf    _atomic_or
-	 l.sfeqi r3,8
-	l.bf    _atomic_max
-	 l.sfeqi r3,9
-	l.bf    _atomic_min
+	/* TODO: check bounds of argument */
+	l.movhi	r19,hi(atomic_table)
+	l.ori	r19,r19,lo(atomic_table)
+	l.slli	r3,r3,3
+	l.add	r19,r19,r3
+	l.jr	r19
+	 l.nop
+atomic_table:
+	l.jr	r9
+	 l.nop
+	l.j	_atomic_swap
+	 l.nop
+	l.j	_atomic_cmpxchg
+	 l.nop
+	l.j	_atomic_xchg
+	 l.nop
+	l.j	_atomic_add
+	 l.nop
+	l.j	_atomic_decpos
+	 l.nop
+	l.j	_atomic_and
+	 l.nop
+	l.j	_atomic_or
+	 l.nop
+	l.j	_atomic_max
+	 l.nop
+	l.j	_atomic_min
 	 l.nop
 
 _atomic_swap:
@@ -1159,90 +1218,90 @@ _atomic_swap:
 
 _atomic_cmpxchg:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.sfeq  r29,r5
-	l.bnf   _atomic_cmpxchg_done
+	l.lwz	r29,0(r4)
+	l.sfeq	r29,r5
+	l.bnf	_atomic_cmpxchg_done
 	l.nop
 
-	l.sw    0(r4),r6
+	l.sw	0(r4),r6
 _atomic_cmpxchg_done:
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_xchg:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.sw    0(r4),r5
+	l.lwz	r29,0(r4)
+	l.sw	0(r4),r5
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_add:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.add   r27,r29,r5
-	l.sw    0(r4),r27
+	l.lwz	r29,0(r4)
+	l.add	r27,r29,r5
+	l.sw	0(r4),r27
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_decpos:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
+	l.lwz	r29,0(r4)
 	l.sfgtsi r29,0
-	l.bnf   _atomic_decpos_done
-	l.addi  r27,r29,-1
+	l.bnf	_atomic_decpos_done
+	l.addi	r27,r29,-1
 
-	l.sw    0(r4),r27
+	l.sw	0(r4),r27
 _atomic_decpos_done:
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_and:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.and   r27,r29,r5
-	l.sw    0(r4),r27
+	l.lwz	r29,0(r4)
+	l.and	r27,r29,r5
+	l.sw	0(r4),r27
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_or:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.or    r27,r29,r5
-	l.sw    0(r4),r27
+	l.lwz	r29,0(r4)
+	l.or	r27,r29,r5
+	l.sw	0(r4),r27
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_max:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.sfltu r29,r5
-	l.bnf   _atomic_max_done
-	l.nop
+	l.lwz	r29,0(r4)
+	l.sfltu	r29,r5
+	l.bnf	_atomic_max_done
+	 l.nop
 
-	l.sw    0(r4),r5
+	l.sw	0(r4),r5
 _atomic_max_done:
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 _atomic_min:
 	DISABLE_INTERRUPTS(r17,r19)
-	l.lwz   r29,0(r4)
-	l.sfgtu r29,r5
-	l.bnf   _atomic_min_done
+	l.lwz	r29,0(r4)
+	l.sfgtu	r29,r5
+	l.bnf	_atomic_min_done
 	l.nop
 
-	l.sw    0(r4),r5
+	l.sw	0(r4),r5
 _atomic_min_done:
 	ENABLE_INTERRUPTS(r17)
-	l.jr    r9
-	 l.or   r11,r29,r0
+	l.jr	r9
+	 l.or	r11,r29,r0
 
 
-/* ============================================================[ EOF ]=== */
+/*	============================================================[	EOF	]===	*/
