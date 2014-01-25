@@ -1173,14 +1173,14 @@ _no_syscall_trace:
  * UMAX: unsigned
  *  @flag: 8
  *  @ptr: mem
- *  @val1: val
+ *  @val1: max
  * If *mem < val, set *mem = max. Returns old value of *mem.
  *
  * UMIN: unsigned
  *  @flag: 9
  *  @ptr: mem
- *  @val1: mask
- * If *mem > val, set *mem = max. Returns old value of *mem.
+ *  @val1: min
+ * If *mem > val, set *mem = min. Returns old value of *mem.
  *
  */
 ENTRY(sys_or1k_atomic)
