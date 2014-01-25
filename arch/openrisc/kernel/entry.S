@@ -1106,20 +1106,50 @@ ENTRY(sys_rt_sigreturn)
 
 /* This is a catch-all syscall for atomic instructions for the OpenRISC 1000.
  * The functions takes a variable number of parameters depending on which
- * particular flavour of atomic you want... parameter 1 is a flag identifying
- * the atomic in question.  Currently, this function implements the
- * following variants:
+ * particular flavour of atomic you want.
+ * Parameter 1 is a flag identifying the atomic in question.
  *
- * XCHG:
- *  @flag: 1
- *  @ptr1:
- *  @ptr2:
- * Atomically exchange the values in pointers 1 and 2.
+ * TODO: Flag value 0 can be used, and it is recommended that the next
+ * atomic instruction to be implemented uses it. Currently it is a no-op.
  *
+ * See arch/openrisc/include/uapi/asm/unistd.h for usage.
  */
-
 ENTRY(sys_or1k_atomic)
-	/* FIXME: This ignores r3 and always does an XCHG */
+	/* TODO: validate mem ptr(s) */
+	l.sfgeui r3,SYS_OR1K_ATOMIC_COUNT
+	l.bf	_atomic_invalid
+	 l.movhi r19,hi(atomic_table)
+	l.ori	r19,r19,lo(atomic_table)
+	l.slli	r3,r3,3
+	l.add	r19,r19,r3
+	l.jr	r19
+	 l.nop
+_atomic_invalid:
+	l.jr	r9
+	 l.nop
+atomic_table:
+	l.jr	r9
+	 l.nop
+	l.j	_atomic_swap
+	 l.nop
+	l.j	_atomic_cmpxchg
+	 l.nop
+	l.j	_atomic_xchg
+	 l.nop
+	l.j	_atomic_add
+	 l.nop
+	l.j	_atomic_decpos
+	 l.nop
+	l.j	_atomic_and
+	 l.nop
+	l.j	_atomic_or
+	 l.nop
+	l.j	_atomic_max
+	 l.nop
+	l.j	_atomic_min
+	 l.nop
+
+_atomic_swap:
 	DISABLE_INTERRUPTS(r17,r19)
 	l.lwz	r29,0(r4)
 	l.lwz	r27,0(r5)
@@ -1129,4 +1159,90 @@ ENTRY(sys_or1k_atomic)
 	l.jr	r9
 	 l.or	r11,r0,r0
 
+_atomic_cmpxchg:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.sfeq	r29,r5
+	l.bnf	_atomic_cmpxchg_done
+	l.nop
+
+	l.sw	0(r4),r6
+_atomic_cmpxchg_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_xchg:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.sw	0(r4),r5
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_add:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.add	r27,r29,r5
+	l.sw	0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_decpos:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.sfgtsi r29,0
+	l.bnf	_atomic_decpos_done
+	l.addi	r27,r29,-1
+
+	l.sw	0(r4),r27
+_atomic_decpos_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_and:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.and	r27,r29,r5
+	l.sw	0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_or:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.or	r27,r29,r5
+	l.sw	0(r4),r27
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_max:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.sfltu	r29,r5
+	l.bnf	_atomic_max_done
+	 l.nop
+
+	l.sw	0(r4),r5
+_atomic_max_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
+
+_atomic_min:
+	DISABLE_INTERRUPTS(r17,r19)
+	l.lwz	r29,0(r4)
+	l.sfgtu	r29,r5
+	l.bnf	_atomic_min_done
+	l.nop
+
+	l.sw	0(r4),r5
+_atomic_min_done:
+	ENABLE_INTERRUPTS(r17)
+	l.jr	r9
+	 l.or	r11,r29,r0
 /* ============================================================[ EOF ]=== */
