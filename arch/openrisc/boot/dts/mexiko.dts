@@ -6,7 +6,7 @@
 	interrupt-parent = <&pic>;
 
 	chosen {
-		bootargs = "console=uart,mmio,0xe8000000,115200 root=/dev/nfs nfsroot=192.168.1.1:/home/buildbot/roots/%s ip=::::::dhcp::";
+		bootargs = "console=uart,mmio,0xe8000000,115200";
 	};
 
 	memory@0 {
