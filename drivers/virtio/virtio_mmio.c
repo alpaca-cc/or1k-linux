@@ -147,9 +147,9 @@ static u32 vm_get_features(struct virtio_device *vdev)
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
 	/* TODO: Features > 32 bits */
-	writel(0, vm_dev->base + VIRTIO_MMIO_HOST_FEATURES_SEL);
+	iowrite32be(0, vm_dev->base + VIRTIO_MMIO_HOST_FEATURES_SEL);
 
-	return readl(vm_dev->base + VIRTIO_MMIO_HOST_FEATURES);
+	return ioread32be(vm_dev->base + VIRTIO_MMIO_HOST_FEATURES);
 }
 
 static void vm_finalize_features(struct virtio_device *vdev)
@@ -161,8 +161,8 @@ static void vm_finalize_features(struct virtio_device *vdev)
 	vring_transport_features(vdev);
 
 	for (i = 0; i < ARRAY_SIZE(vdev->features); i++) {
-		writel(i, vm_dev->base + VIRTIO_MMIO_GUEST_FEATURES_SEL);
-		writel(vdev->features[i],
+		iowrite32be(i, vm_dev->base + VIRTIO_MMIO_GUEST_FEATURES_SEL);
+		iowrite32be(vdev->features[i],
 				vm_dev->base + VIRTIO_MMIO_GUEST_FEATURES);
 	}
 }
@@ -193,7 +193,7 @@ static u8 vm_get_status(struct virtio_device *vdev)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
-	return readl(vm_dev->base + VIRTIO_MMIO_STATUS) & 0xff;
+	return ioread32be(vm_dev->base + VIRTIO_MMIO_STATUS) & 0xff;
 }
 
 static void vm_set_status(struct virtio_device *vdev, u8 status)
@@ -203,7 +203,7 @@ static void vm_set_status(struct virtio_device *vdev, u8 status)
 	/* We should never be setting status to 0. */
 	BUG_ON(status == 0);
 
-	writel(status, vm_dev->base + VIRTIO_MMIO_STATUS);
+	iowrite32be(status, vm_dev->base + VIRTIO_MMIO_STATUS);
 }
 
 static void vm_reset(struct virtio_device *vdev)
@@ -211,7 +211,7 @@ static void vm_reset(struct virtio_device *vdev)
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
 	/* 0 status means a reset. */
-	writel(0, vm_dev->base + VIRTIO_MMIO_STATUS);
+	iowrite32be(0, vm_dev->base + VIRTIO_MMIO_STATUS);
 }
 
 
@@ -225,7 +225,7 @@ static bool vm_notify(struct virtqueue *vq)
 
 	/* We write the queue's selector into the notification register to
 	 * signal the other end */
-	writel(vq->index, vm_dev->base + VIRTIO_MMIO_QUEUE_NOTIFY);
+	iowrite32be(vq->index, vm_dev->base + VIRTIO_MMIO_QUEUE_NOTIFY);
 	return true;
 }
 
@@ -241,8 +241,8 @@ static irqreturn_t vm_interrupt(int irq, void *opaque)
 	irqreturn_t ret = IRQ_NONE;
 
 	/* Read and acknowledge interrupts */
-	status = readl(vm_dev->base + VIRTIO_MMIO_INTERRUPT_STATUS);
-	writel(status, vm_dev->base + VIRTIO_MMIO_INTERRUPT_ACK);
+	status = ioread32be(vm_dev->base + VIRTIO_MMIO_INTERRUPT_STATUS);
+	iowrite32be(status, vm_dev->base + VIRTIO_MMIO_INTERRUPT_ACK);
 
 	if (unlikely(status & VIRTIO_MMIO_INT_CONFIG)
 			&& vdrv && vdrv->config_changed) {
@@ -276,8 +276,8 @@ static void vm_del_vq(struct virtqueue *vq)
 	vring_del_virtqueue(vq);
 
 	/* Select and deactivate the queue */
-	writel(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
-	writel(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
+	iowrite32be(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
+	iowrite32be(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
 	size = PAGE_ALIGN(vring_size(info->num, VIRTIO_MMIO_VRING_ALIGN));
 	free_pages_exact(info->queue, size);
@@ -311,10 +311,10 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 		return NULL;
 
 	/* Select the queue we're interested in */
-	writel(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
+	iowrite32be(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
 
 	/* Queue shouldn't already be set up. */
-	if (readl(vm_dev->base + VIRTIO_MMIO_QUEUE_PFN)) {
+	if (ioread32be(vm_dev->base + VIRTIO_MMIO_QUEUE_PFN)) {
 		err = -ENOENT;
 		goto error_available;
 	}
@@ -331,7 +331,7 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	 * to a minimal size, just big enough to fit descriptor table
 	 * and two rings (which makes it "alignment_size * 2")
 	 */
-	info->num = readl(vm_dev->base + VIRTIO_MMIO_QUEUE_NUM_MAX);
+	info->num = ioread32be(vm_dev->base + VIRTIO_MMIO_QUEUE_NUM_MAX);
 
 	/* If the device reports a 0 entry queue, we won't be able to
 	 * use it to perform I/O, and vring_new_virtqueue() can't create
@@ -359,10 +359,10 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	}
 
 	/* Activate the queue */
-	writel(info->num, vm_dev->base + VIRTIO_MMIO_QUEUE_NUM);
-	writel(VIRTIO_MMIO_VRING_ALIGN,
+	iowrite32be(info->num, vm_dev->base + VIRTIO_MMIO_QUEUE_NUM);
+	iowrite32be(VIRTIO_MMIO_VRING_ALIGN,
 			vm_dev->base + VIRTIO_MMIO_QUEUE_ALIGN);
-	writel(virt_to_phys(info->queue) >> PAGE_SHIFT,
+	iowrite32be(virt_to_phys(info->queue) >> PAGE_SHIFT,
 			vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
 	/* Create the vring */
@@ -383,7 +383,7 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	return vq;
 
 error_new_virtqueue:
-	writel(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
+	iowrite32be(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 	free_pages_exact(info->queue, size);
 error_alloc_pages:
 	kfree(info);
@@ -470,24 +470,24 @@ static int virtio_mmio_probe(struct platform_device *pdev)
 		return -EFAULT;
 
 	/* Check magic value */
-	magic = readl(vm_dev->base + VIRTIO_MMIO_MAGIC_VALUE);
+	magic = ioread32be(vm_dev->base + VIRTIO_MMIO_MAGIC_VALUE);
 	if (magic != ('v' | 'i' << 8 | 'r' << 16 | 't' << 24)) {
 		dev_warn(&pdev->dev, "Wrong magic value 0x%08lx!\n", magic);
 		return -ENODEV;
 	}
 
 	/* Check device version */
-	vm_dev->version = readl(vm_dev->base + VIRTIO_MMIO_VERSION);
+	vm_dev->version = ioread32be(vm_dev->base + VIRTIO_MMIO_VERSION);
 	if (vm_dev->version != 1) {
 		dev_err(&pdev->dev, "Version %ld not supported!\n",
 				vm_dev->version);
 		return -ENXIO;
 	}
 
-	vm_dev->vdev.id.device = readl(vm_dev->base + VIRTIO_MMIO_DEVICE_ID);
-	vm_dev->vdev.id.vendor = readl(vm_dev->base + VIRTIO_MMIO_VENDOR_ID);
+	vm_dev->vdev.id.device = ioread32be(vm_dev->base + VIRTIO_MMIO_DEVICE_ID);
+	vm_dev->vdev.id.vendor = ioread32be(vm_dev->base + VIRTIO_MMIO_VENDOR_ID);
 
-	writel(PAGE_SIZE, vm_dev->base + VIRTIO_MMIO_GUEST_PAGE_SIZE);
+	iowrite32be(PAGE_SIZE, vm_dev->base + VIRTIO_MMIO_GUEST_PAGE_SIZE);
 
 	platform_set_drvdata(pdev, vm_dev);
 

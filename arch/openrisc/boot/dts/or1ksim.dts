@@ -6,7 +6,7 @@
 	interrupt-parent = <&pic>;
 
 	chosen {
-		bootargs = "console=uart,mmio,0x90000000,115200";
+		bootargs = "console=uart,mmio,0x90000000,115200 root=/dev/vda";
 	};
 
 	memory@0 {
@@ -22,6 +22,12 @@
 			reg = <0>;
 			clock-frequency = <20000000>;
 		};
+	};
+
+	virtio_block@93000000 {
+		compatible = "virtio,mmio";
+		reg = <0x93000000 0x100>;
+		interrupts = <9>;
 	};
 
 	/*
@@ -47,4 +53,5 @@
 		reg = <0x92000000 0x100>;
 		interrupts = <4>;
 	};
+
 };
