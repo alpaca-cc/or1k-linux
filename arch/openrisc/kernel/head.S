@@ -83,7 +83,7 @@
 /*
  * TLB miss handlers temorary stores
  */
-#if 1/*CONFIG_HAVE_SHADOW_GPRS*/
+#if 0/*CONFIG_HAVE_SHADOW_GPRS*/
 #define EXCEPTION_STORE_GPR2		l.mtspr	r0,r2,SPR_ISR0
 #define EXCEPTION_LOAD_GPR2		l.mfspr r2,r0,SPR_ISR0
 
@@ -121,7 +121,7 @@
  * EXCEPTION_HANDLE temporary stores
  */
 
-#if 1/*CONFIG_HAVE_SHADOW_GPRS*/
+#if 0/*CONFIG_HAVE_SHADOW_GPRS*/
 #define EXCEPTION_T_STORE_GPR30		l.mtspr	r0,r30,SPR_ISR5
 #define EXCEPTION_T_LOAD_GPR30(reg)	l.mfspr reg,r0,SPR_ISR5
 
