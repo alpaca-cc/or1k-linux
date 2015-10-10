@@ -15,6 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/regulator/consumer.h>
+#include <linux/workqueue.h>
 
 #include <drm/drm_dp_helper.h>
 #include <drm/drm_panel.h>
@@ -41,6 +42,7 @@ struct tegra_dpaux {
 	struct regulator *vdd;
 
 	struct completion complete;
+	struct work_struct work;
 	struct list_head list;
 };
 
@@ -49,15 +51,19 @@ static inline struct tegra_dpaux *to_dpaux(struct drm_dp_aux *aux)
 	return container_of(aux, struct tegra_dpaux, aux);
 }
 
-static inline unsigned long tegra_dpaux_readl(struct tegra_dpaux *dpaux,
-					      unsigned long offset)
+static inline struct tegra_dpaux *work_to_dpaux(struct work_struct *work)
+{
+	return container_of(work, struct tegra_dpaux, work);
+}
+
+static inline u32 tegra_dpaux_readl(struct tegra_dpaux *dpaux,
+				    unsigned long offset)
 {
 	return readl(dpaux->regs + (offset << 2));
 }
 
 static inline void tegra_dpaux_writel(struct tegra_dpaux *dpaux,
-				      unsigned long value,
-				      unsigned long offset)
+				      u32 value, unsigned long offset)
 {
 	writel(value, dpaux->regs + (offset << 2));
 }
@@ -65,34 +71,32 @@ static inline void tegra_dpaux_writel(struct tegra_dpaux *dpaux,
 static void tegra_dpaux_write_fifo(struct tegra_dpaux *dpaux, const u8 *buffer,
 				   size_t size)
 {
-	unsigned long offset = DPAUX_DP_AUXDATA_WRITE(0);
 	size_t i, j;
 
-	for (i = 0; i < size; i += 4) {
-		size_t num = min_t(size_t, size - i, 4);
-		unsigned long value = 0;
+	for (i = 0; i < DIV_ROUND_UP(size, 4); i++) {
+		size_t num = min_t(size_t, size - i * 4, 4);
+		u32 value = 0;
 
 		for (j = 0; j < num; j++)
-			value |= buffer[i + j] << (j * 8);
+			value |= buffer[i * 4 + j] << (j * 8);
 
-		tegra_dpaux_writel(dpaux, value, offset++);
+		tegra_dpaux_writel(dpaux, value, DPAUX_DP_AUXDATA_WRITE(i));
 	}
 }
 
 static void tegra_dpaux_read_fifo(struct tegra_dpaux *dpaux, u8 *buffer,
 				  size_t size)
 {
-	unsigned long offset = DPAUX_DP_AUXDATA_READ(0);
 	size_t i, j;
 
-	for (i = 0; i < size; i += 4) {
-		size_t num = min_t(size_t, size - i, 4);
-		unsigned long value;
+	for (i = 0; i < DIV_ROUND_UP(size, 4); i++) {
+		size_t num = min_t(size_t, size - i * 4, 4);
+		u32 value;
 
-		value = tegra_dpaux_readl(dpaux, offset++);
+		value = tegra_dpaux_readl(dpaux, DPAUX_DP_AUXDATA_READ(i));
 
 		for (j = 0; j < num; j++)
-			buffer[i + j] = value >> (j * 8);
+			buffer[i * 4 + j] = value >> (j * 8);
 	}
 }
 
@@ -231,26 +235,26 @@ static ssize_t tegra_dpaux_transfer(struct drm_dp_aux *aux,
 	return ret;
 }
 
+static void tegra_dpaux_hotplug(struct work_struct *work)
+{
+	struct tegra_dpaux *dpaux = work_to_dpaux(work);
+
+	if (dpaux->output)
+		drm_helper_hpd_irq_event(dpaux->output->connector.dev);
+}
+
 static irqreturn_t tegra_dpaux_irq(int irq, void *data)
 {
 	struct tegra_dpaux *dpaux = data;
 	irqreturn_t ret = IRQ_HANDLED;
-	unsigned long value;
+	u32 value;
 
 	/* clear interrupts */
 	value = tegra_dpaux_readl(dpaux, DPAUX_INTR_AUX);
 	tegra_dpaux_writel(dpaux, value, DPAUX_INTR_AUX);
 
-	if (value & DPAUX_INTR_PLUG_EVENT) {
-		if (dpaux->output) {
-			drm_helper_hpd_irq_event(dpaux->output->connector.dev);
-		}
-	}
-
-	if (value & DPAUX_INTR_UNPLUG_EVENT) {
-		if (dpaux->output)
-			drm_helper_hpd_irq_event(dpaux->output->connector.dev);
-	}
+	if (value & (DPAUX_INTR_PLUG_EVENT | DPAUX_INTR_UNPLUG_EVENT))
+		schedule_work(&dpaux->work);
 
 	if (value & DPAUX_INTR_IRQ_EVENT) {
 		/* TODO: handle this */
@@ -266,13 +270,14 @@ static int tegra_dpaux_probe(struct platform_device *pdev)
 {
 	struct tegra_dpaux *dpaux;
 	struct resource *regs;
-	unsigned long value;
+	u32 value;
 	int err;
 
 	dpaux = devm_kzalloc(&pdev->dev, sizeof(*dpaux), GFP_KERNEL);
 	if (!dpaux)
 		return -ENOMEM;
 
+	INIT_WORK(&dpaux->work, tegra_dpaux_hotplug);
 	init_completion(&dpaux->complete);
 	INIT_LIST_HEAD(&dpaux->list);
 	dpaux->dev = &pdev->dev;
@@ -332,7 +337,7 @@ static int tegra_dpaux_probe(struct platform_device *pdev)
 	dpaux->aux.transfer = tegra_dpaux_transfer;
 	dpaux->aux.dev = &pdev->dev;
 
-	err = drm_dp_aux_register_i2c_bus(&dpaux->aux);
+	err = drm_dp_aux_register(&dpaux->aux);
 	if (err < 0)
 		return err;
 
@@ -355,11 +360,13 @@ static int tegra_dpaux_remove(struct platform_device *pdev)
 {
 	struct tegra_dpaux *dpaux = platform_get_drvdata(pdev);
 
-	drm_dp_aux_unregister_i2c_bus(&dpaux->aux);
+	drm_dp_aux_unregister(&dpaux->aux);
 
 	mutex_lock(&dpaux_lock);
 	list_del(&dpaux->list);
 	mutex_unlock(&dpaux_lock);
+
+	cancel_work_sync(&dpaux->work);
 
 	clk_disable_unprepare(dpaux->clk_parent);
 	reset_control_assert(dpaux->rst);
@@ -372,6 +379,7 @@ static const struct of_device_id tegra_dpaux_of_match[] = {
 	{ .compatible = "nvidia,tegra124-dpaux", },
 	{ },
 };
+MODULE_DEVICE_TABLE(of, tegra_dpaux_of_match);
 
 struct platform_driver tegra_dpaux_driver = {
 	.driver = {
@@ -404,6 +412,7 @@ int tegra_dpaux_attach(struct tegra_dpaux *dpaux, struct tegra_output *output)
 	unsigned long timeout;
 	int err;
 
+	output->connector.polled = DRM_CONNECTOR_POLL_HPD;
 	dpaux->output = output;
 
 	err = regulator_enable(dpaux->vdd);
@@ -453,7 +462,7 @@ int tegra_dpaux_detach(struct tegra_dpaux *dpaux)
 
 enum drm_connector_status tegra_dpaux_detect(struct tegra_dpaux *dpaux)
 {
-	unsigned long value;
+	u32 value;
 
 	value = tegra_dpaux_readl(dpaux, DPAUX_DP_AUXSTAT);
 
@@ -465,7 +474,7 @@ enum drm_connector_status tegra_dpaux_detect(struct tegra_dpaux *dpaux)
 
 int tegra_dpaux_enable(struct tegra_dpaux *dpaux)
 {
-	unsigned long value;
+	u32 value;
 
 	value = DPAUX_HYBRID_PADCTL_AUX_CMH(2) |
 		DPAUX_HYBRID_PADCTL_AUX_DRVZ(4) |
@@ -483,7 +492,7 @@ int tegra_dpaux_enable(struct tegra_dpaux *dpaux)
 
 int tegra_dpaux_disable(struct tegra_dpaux *dpaux)
 {
-	unsigned long value;
+	u32 value;
 
 	value = tegra_dpaux_readl(dpaux, DPAUX_HYBRID_SPARE);
 	value |= DPAUX_HYBRID_SPARE_PAD_POWER_DOWN;
@@ -521,9 +530,9 @@ int tegra_dpaux_train(struct tegra_dpaux *dpaux, struct drm_dp_link *link,
 
 	for (i = 0; i < link->num_lanes; i++)
 		values[i] = DP_TRAIN_MAX_PRE_EMPHASIS_REACHED |
-			    DP_TRAIN_PRE_EMPHASIS_0 |
+			    DP_TRAIN_PRE_EMPH_LEVEL_0 |
 			    DP_TRAIN_MAX_SWING_REACHED |
-			    DP_TRAIN_VOLTAGE_SWING_400;
+			    DP_TRAIN_VOLTAGE_SWING_LEVEL_0;
 
 	err = drm_dp_dpcd_write(&dpaux->aux, DP_TRAINING_LANE0_SET, values,
 				link->num_lanes);

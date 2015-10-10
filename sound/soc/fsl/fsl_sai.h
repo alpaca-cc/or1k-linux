@@ -35,9 +35,20 @@
 #define FSL_SAI_RFR	0xc0 /* SAI Receive FIFO */
 #define FSL_SAI_RMR	0xe0 /* SAI Receive Mask */
 
+#define FSL_SAI_xCSR(tx)	(tx ? FSL_SAI_TCSR : FSL_SAI_RCSR)
+#define FSL_SAI_xCR1(tx)	(tx ? FSL_SAI_TCR1 : FSL_SAI_RCR1)
+#define FSL_SAI_xCR2(tx)	(tx ? FSL_SAI_TCR2 : FSL_SAI_RCR2)
+#define FSL_SAI_xCR3(tx)	(tx ? FSL_SAI_TCR3 : FSL_SAI_RCR3)
+#define FSL_SAI_xCR4(tx)	(tx ? FSL_SAI_TCR4 : FSL_SAI_RCR4)
+#define FSL_SAI_xCR5(tx)	(tx ? FSL_SAI_TCR5 : FSL_SAI_RCR5)
+#define FSL_SAI_xDR(tx)		(tx ? FSL_SAI_TDR : FSL_SAI_RDR)
+#define FSL_SAI_xFR(tx)		(tx ? FSL_SAI_TFR : FSL_SAI_RFR)
+#define FSL_SAI_xMR(tx)		(tx ? FSL_SAI_TMR : FSL_SAI_RMR)
+
 /* SAI Transmit/Recieve Control Register */
 #define FSL_SAI_CSR_TERE	BIT(31)
 #define FSL_SAI_CSR_FR		BIT(25)
+#define FSL_SAI_CSR_SR		BIT(24)
 #define FSL_SAI_CSR_xF_SHIFT	16
 #define FSL_SAI_CSR_xF_W_SHIFT	18
 #define FSL_SAI_CSR_xF_MASK	(0x1f << FSL_SAI_CSR_xF_SHIFT)
@@ -48,6 +59,7 @@
 #define FSL_SAI_CSR_FWF		BIT(17)
 #define FSL_SAI_CSR_FRF		BIT(16)
 #define FSL_SAI_CSR_xIE_SHIFT	8
+#define FSL_SAI_CSR_xIE_MASK	(0x1f << FSL_SAI_CSR_xIE_SHIFT)
 #define FSL_SAI_CSR_WSIE	BIT(12)
 #define FSL_SAI_CSR_SEIE	BIT(11)
 #define FSL_SAI_CSR_FEIE	BIT(10)
@@ -60,13 +72,15 @@
 
 /* SAI Transmit and Recieve Configuration 2 Register */
 #define FSL_SAI_CR2_SYNC	BIT(30)
-#define FSL_SAI_CR2_MSEL_MASK	(0xff << 26)
+#define FSL_SAI_CR2_MSEL_MASK	(0x3 << 26)
 #define FSL_SAI_CR2_MSEL_BUS	0
 #define FSL_SAI_CR2_MSEL_MCLK1	BIT(26)
 #define FSL_SAI_CR2_MSEL_MCLK2	BIT(27)
 #define FSL_SAI_CR2_MSEL_MCLK3	(BIT(26) | BIT(27))
+#define FSL_SAI_CR2_MSEL(ID)	((ID) << 26)
 #define FSL_SAI_CR2_BCP		BIT(25)
 #define FSL_SAI_CR2_BCD_MSTR	BIT(24)
+#define FSL_SAI_CR2_DIV_MASK	0xff
 
 /* SAI Transmit and Recieve Configuration 3 Register */
 #define FSL_SAI_CR3_TRCE	BIT(16)
@@ -108,6 +122,8 @@
 #define FSL_SAI_CLK_MAST2	2
 #define FSL_SAI_CLK_MAST3	3
 
+#define FSL_SAI_MCLK_MAX	4
+
 /* SAI data transfer numbers per DMA request */
 #define FSL_SAI_MAXBURST_TX 6
 #define FSL_SAI_MAXBURST_RX 6
@@ -115,13 +131,22 @@
 struct fsl_sai {
 	struct platform_device *pdev;
 	struct regmap *regmap;
+	struct clk *bus_clk;
+	struct clk *mclk_clk[FSL_SAI_MCLK_MAX];
 
-	bool big_endian_regs;
-	bool big_endian_data;
+	bool is_slave_mode;
+	bool is_lsb_first;
 	bool is_dsp_mode;
+	bool sai_on_imx;
+	bool synchronous[2];
 
+	unsigned int mclk_id[2];
+	unsigned int mclk_streams;
 	struct snd_dmaengine_dai_dma_data dma_params_rx;
 	struct snd_dmaengine_dai_dma_data dma_params_tx;
 };
+
+#define TX 1
+#define RX 0
 
 #endif /* __FSL_SAI_H */

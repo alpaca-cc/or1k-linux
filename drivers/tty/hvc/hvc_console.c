@@ -319,7 +319,8 @@ static int hvc_install(struct tty_driver *driver, struct tty_struct *tty)
 	int rc;
 
 	/* Auto increments kref reference if found. */
-	if (!(hp = hvc_get_by_index(tty->index)))
+	hp = hvc_get_by_index(tty->index);
+	if (!hp)
 		return -ENODEV;
 
 	tty->driver_data = hp;
@@ -760,10 +761,17 @@ static int khvcd(void *unused)
 			if (poll_mask == 0)
 				schedule();
 			else {
+				unsigned long j_timeout;
+
 				if (timeout < MAX_TIMEOUT)
 					timeout += (timeout >> 6) + 1;
 
-				msleep_interruptible(timeout);
+				/*
+				 * We don't use msleep_interruptible otherwise
+				 * "kick" will fail to wake us up
+				 */
+				j_timeout = msecs_to_jiffies(timeout) + 1;
+				schedule_timeout_interruptible(j_timeout);
 			}
 		}
 		__set_current_state(TASK_RUNNING);

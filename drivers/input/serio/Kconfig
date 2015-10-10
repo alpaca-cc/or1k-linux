@@ -252,6 +252,7 @@ config SERIO_OPENCORES_PS2
 
 config SERIO_ARC_PS2
 	tristate "ARC PS/2 support"
+	depends on HAS_IOMEM
 	help
 	  Say Y here if you have an ARC FPGA platform with a PS/2
 	  controller in it.
@@ -288,5 +289,15 @@ config HYPERV_KEYBOARD
 
 	  To compile this driver as a module, choose M here: the module will
 	  be called hyperv_keyboard.
+
+config SERIO_SUN4I_PS2
+	tristate "Allwinner A10 PS/2 controller support"
+	depends on ARCH_SUNXI || COMPILE_TEST
+	help
+	  This selects support for the PS/2 Host Controller on
+	  Allwinner A10.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called sun4i-ps2.
 
 endif

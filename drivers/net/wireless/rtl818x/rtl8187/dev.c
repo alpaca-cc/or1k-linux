@@ -253,14 +253,21 @@ static void rtl8187_tx(struct ieee80211_hw *dev,
 	flags |= ieee80211_get_tx_rate(dev, info)->hw_value << 24;
 	if (ieee80211_has_morefrags(tx_hdr->frame_control))
 		flags |= RTL818X_TX_DESC_FLAG_MOREFRAG;
+
+	/* HW will perform RTS-CTS when only RTS flags is set.
+	 * HW will perform CTS-to-self when both RTS and CTS flags are set.
+	 * RTS rate and RTS duration will be used also for CTS-to-self.
+	 */
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_RTS_CTS) {
 		flags |= RTL818X_TX_DESC_FLAG_RTS;
 		flags |= ieee80211_get_rts_cts_rate(dev, info)->hw_value << 19;
 		rts_dur = ieee80211_rts_duration(dev, priv->vif,
 						 skb->len, info);
 	} else if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT) {
-		flags |= RTL818X_TX_DESC_FLAG_CTS;
+		flags |= RTL818X_TX_DESC_FLAG_RTS | RTL818X_TX_DESC_FLAG_CTS;
 		flags |= ieee80211_get_rts_cts_rate(dev, info)->hw_value << 19;
+		rts_dur = ieee80211_ctstoself_duration(dev, priv->vif,
+						 skb->len, info);
 	}
 
 	if (info->flags & IEEE80211_TX_CTL_ASSIGN_SEQ) {
@@ -381,6 +388,8 @@ static void rtl8187_rx_cb(struct urb *urb)
 	rx_status.freq = dev->conf.chandef.chan->center_freq;
 	rx_status.band = dev->conf.chandef.chan->band;
 	rx_status.flag |= RX_FLAG_MACTIME_START;
+	if (flags & RTL818X_RX_DESC_FLAG_SPLCP)
+		rx_status.flag |= RX_FLAG_SHORTPRE;
 	if (flags & RTL818X_RX_DESC_FLAG_CRC32_ERR)
 		rx_status.flag |= RX_FLAG_FAILED_FCS_CRC;
 	memcpy(IEEE80211_SKB_RXCB(skb), &rx_status, sizeof(rx_status));
@@ -1469,9 +1478,9 @@ static int rtl8187_probe(struct usb_interface *intf,
 	dev->wiphy->bands[IEEE80211_BAND_2GHZ] = &priv->band;
 
 
-	dev->flags = IEEE80211_HW_HOST_BROADCAST_PS_BUFFERING |
-		     IEEE80211_HW_SIGNAL_DBM |
-		     IEEE80211_HW_RX_INCLUDES_FCS;
+	ieee80211_hw_set(dev, RX_INCLUDES_FCS);
+	ieee80211_hw_set(dev, HOST_BROADCAST_PS_BUFFERING);
+	ieee80211_hw_set(dev, SIGNAL_DBM);
 	/* Initialize rate-control variables */
 	dev->max_rates = 1;
 	dev->max_rate_tries = RETRY_COUNT;

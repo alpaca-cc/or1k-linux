@@ -127,11 +127,14 @@ void __init hisi_clk_register_mux(struct hisi_mux_clock *clks,
 	int i;
 
 	for (i = 0; i < nums; i++) {
-		clk = clk_register_mux(NULL, clks[i].name, clks[i].parent_names,
-				       clks[i].num_parents, clks[i].flags,
-				       base + clks[i].offset, clks[i].shift,
-				       clks[i].width, clks[i].mux_flags,
-				       &hisi_clk_lock);
+		u32 mask = BIT(clks[i].width) - 1;
+
+		clk = clk_register_mux_table(NULL, clks[i].name,
+					clks[i].parent_names,
+					clks[i].num_parents, clks[i].flags,
+					base + clks[i].offset, clks[i].shift,
+					mask, clks[i].mux_flags,
+					clks[i].table, &hisi_clk_lock);
 		if (IS_ERR(clk)) {
 			pr_err("%s: failed to register clock %s\n",
 			       __func__, clks[i].name);
@@ -174,6 +177,34 @@ void __init hisi_clk_register_divider(struct hisi_divider_clock *clks,
 	}
 }
 
+void __init hisi_clk_register_gate(struct hisi_gate_clock *clks,
+				       int nums, struct hisi_clock_data *data)
+{
+	struct clk *clk;
+	void __iomem *base = data->base;
+	int i;
+
+	for (i = 0; i < nums; i++) {
+		clk = clk_register_gate(NULL, clks[i].name,
+						clks[i].parent_name,
+						clks[i].flags,
+						base + clks[i].offset,
+						clks[i].bit_idx,
+						clks[i].gate_flags,
+						&hisi_clk_lock);
+		if (IS_ERR(clk)) {
+			pr_err("%s: failed to register clock %s\n",
+			       __func__, clks[i].name);
+			continue;
+		}
+
+		if (clks[i].alias)
+			clk_register_clkdev(clk, clks[i].alias, NULL);
+
+		data->clk_data.clks[clks[i].id] = clk;
+	}
+}
+
 void __init hisi_clk_register_gate_sep(struct hisi_gate_clock *clks,
 				       int nums, struct hisi_clock_data *data)
 {
@@ -188,6 +219,35 @@ void __init hisi_clk_register_gate_sep(struct hisi_gate_clock *clks,
 						base + clks[i].offset,
 						clks[i].bit_idx,
 						clks[i].gate_flags,
+						&hisi_clk_lock);
+		if (IS_ERR(clk)) {
+			pr_err("%s: failed to register clock %s\n",
+			       __func__, clks[i].name);
+			continue;
+		}
+
+		if (clks[i].alias)
+			clk_register_clkdev(clk, clks[i].alias, NULL);
+
+		data->clk_data.clks[clks[i].id] = clk;
+	}
+}
+
+void __init hi6220_clk_register_divider(struct hi6220_divider_clock *clks,
+					int nums, struct hisi_clock_data *data)
+{
+	struct clk *clk;
+	void __iomem *base = data->base;
+	int i;
+
+	for (i = 0; i < nums; i++) {
+		clk = hi6220_register_clkdiv(NULL, clks[i].name,
+						clks[i].parent_name,
+						clks[i].flags,
+						base + clks[i].offset,
+						clks[i].shift,
+						clks[i].width,
+						clks[i].mask_bit,
 						&hisi_clk_lock);
 		if (IS_ERR(clk)) {
 			pr_err("%s: failed to register clock %s\n",

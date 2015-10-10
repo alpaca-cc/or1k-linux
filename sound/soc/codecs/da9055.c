@@ -484,7 +484,7 @@ static int da9055_get_alc_data(struct snd_soc_codec *codec, u8 reg_val)
 static int da9055_put_alc_sw(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	u8 reg_val, adc_left, adc_right, mic_left, mic_right;
 	int avg_left_data, avg_right_data, offset_l, offset_r;
 
@@ -1364,7 +1364,7 @@ static int da9055_set_bias_level(struct snd_soc_codec *codec,
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
+		if (snd_soc_codec_get_bias_level(codec) == SND_SOC_BIAS_OFF) {
 			/* Enable VMID reference & master bias */
 			snd_soc_update_bits(codec, DA9055_REFERENCES,
 					    DA9055_VMID_EN | DA9055_BIAS_EN,
@@ -1377,7 +1377,6 @@ static int da9055_set_bias_level(struct snd_soc_codec *codec,
 				    DA9055_VMID_EN | DA9055_BIAS_EN, 0);
 		break;
 	}
-	codec->dapm.bias_level = level;
 	return 0;
 }
 

@@ -12,15 +12,11 @@
 #include <linux/types.h>
 #include <asm/sgidefs.h>
 
-/* Bits which may be set in sc_used_math */
-#define USEDMATH_FP	(1 << 0)
-#define USEDMATH_MSA	(1 << 1)
-
 #if _MIPS_SIM == _MIPS_SIM_ABI32
 
 /*
  * Keep this struct definition in sync with the sigcontext fragment
- * in arch/mips/tools/offset.c
+ * in arch/mips/kernel/asm-offsets.c
  */
 struct sigcontext {
 	unsigned int		sc_regmask;	/* Unused */
@@ -41,8 +37,6 @@ struct sigcontext {
 	unsigned long		sc_lo2;
 	unsigned long		sc_hi3;
 	unsigned long		sc_lo3;
-	unsigned long long	sc_msaregs[32];	/* Most significant 64 bits */
-	unsigned long		sc_msa_csr;
 };
 
 #endif /* _MIPS_SIM == _MIPS_SIM_ABI32 */
@@ -52,7 +46,7 @@ struct sigcontext {
 #include <linux/posix_types.h>
 /*
  * Keep this struct definition in sync with the sigcontext fragment
- * in arch/mips/tools/offset.c
+ * in arch/mips/kernel/asm-offsets.c
  *
  * Warning: this structure illdefined with sc_badvaddr being just an unsigned
  * int so it was changed to unsigned long in 2.6.0-test1.  This may break
@@ -76,8 +70,6 @@ struct sigcontext {
 	__u32	sc_used_math;
 	__u32	sc_dsp;
 	__u32	sc_reserved;
-	__u64	sc_msaregs[32];
-	__u32	sc_msa_csr;
 };
 
 

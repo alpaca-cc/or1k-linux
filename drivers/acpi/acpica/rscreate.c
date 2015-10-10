@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2014, Intel Corp.
+ * Copyright (C) 2000 - 2015, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -72,6 +72,8 @@ acpi_buffer_to_resource(u8 *aml_buffer,
 	void *resource;
 	void *current_resource_ptr;
 
+	ACPI_FUNCTION_TRACE(acpi_buffer_to_resource);
+
 	/*
 	 * Note: we allow AE_AML_NO_RESOURCE_END_TAG, since an end tag
 	 * is not required here.
@@ -85,7 +87,7 @@ acpi_buffer_to_resource(u8 *aml_buffer,
 		status = AE_OK;
 	}
 	if (ACPI_FAILURE(status)) {
-		return (status);
+		return_ACPI_STATUS(status);
 	}
 
 	/* Allocate a buffer for the converted resource */
@@ -93,7 +95,7 @@ acpi_buffer_to_resource(u8 *aml_buffer,
 	resource = ACPI_ALLOCATE_ZEROED(list_size_needed);
 	current_resource_ptr = resource;
 	if (!resource) {
-		return (AE_NO_MEMORY);
+		return_ACPI_STATUS(AE_NO_MEMORY);
 	}
 
 	/* Perform the AML-to-Resource conversion */
@@ -110,8 +112,10 @@ acpi_buffer_to_resource(u8 *aml_buffer,
 		*resource_ptr = resource;
 	}
 
-	return (status);
+	return_ACPI_STATUS(status);
 }
+
+ACPI_EXPORT_SYMBOL(acpi_buffer_to_resource)
 
 /*******************************************************************************
  *
@@ -130,10 +134,9 @@ acpi_buffer_to_resource(u8 *aml_buffer,
  *              of device resources.
  *
  ******************************************************************************/
-
 acpi_status
 acpi_rs_create_resource_list(union acpi_operand_object *aml_buffer,
-			     struct acpi_buffer * output_buffer)
+			     struct acpi_buffer *output_buffer)
 {
 
 	acpi_status status;
@@ -350,13 +353,13 @@ acpi_rs_create_pci_routing_table(union acpi_operand_object *package_object,
 				/* +1 to include null terminator */
 
 				user_prt->length +=
-				    (u32) ACPI_STRLEN(user_prt->source) + 1;
+				    (u32)strlen(user_prt->source) + 1;
 				break;
 
 			case ACPI_TYPE_STRING:
 
-				ACPI_STRCPY(user_prt->source,
-					    obj_desc->string.pointer);
+				strcpy(user_prt->source,
+				       obj_desc->string.pointer);
 
 				/*
 				 * Add to the Length field the length of the string

@@ -8,15 +8,16 @@ config OPENRISC
 	select OF
 	select OF_EARLY_FLATTREE
 	select IRQ_DOMAIN
+	select HANDLE_DOMAIN_IRQ
 	select HAVE_MEMBLOCK
 	select ARCH_REQUIRE_GPIOLIB
         select HAVE_ARCH_TRACEHOOK
-	select SPARSE_IRQ
 	select GENERIC_IRQ_CHIP
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
 	select GENERIC_IOMAP
 	select GENERIC_CPU_DEVICES
+	select HAVE_UID16
 	select GENERIC_ATOMIC64
 	select GENERIC_CLOCKEVENTS
 	select GENERIC_STRNCPY_FROM_USER
@@ -31,9 +32,6 @@ config MMU
 	def_bool y
 
 config HAVE_DMA_ATTRS
-	def_bool y
-
-config UID16
 	def_bool y
 
 config RWSEM_GENERIC_SPINLOCK
@@ -111,6 +109,7 @@ config OPENRISC_HAVE_INST_LWA_SWA
 	help
 	  Select this if your implementation have l.lwa and l.swa atomic
 	  instructions.
+
 endmenu
 
 config NR_CPUS
@@ -145,6 +144,16 @@ config OPENRISC_NO_SPR_SR_DSX
 
 	  Say N here if you know that your OpenRISC processor has
 	  SPR_SR_DSX bit implemented. Say Y if you are unsure.
+
+config OPENRISC_HAVE_SHADOW_GPRS
+	bool "Support for shadow gpr files"
+	help
+	  Say Y here if your OpenRISC processor features shadowed
+	  register files. They will in such case be used as a
+	  scratch reg storage on exception entry.
+
+	  On SMP systems, this feature is mandatory.
+	  On a unicore system it's safe to say N here if you are unsure.
 
 config CMDLINE
         string "Default kernel command string"
