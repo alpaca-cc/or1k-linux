@@ -134,6 +134,13 @@ static int vm_finalize_features(struct virtio_device *vdev)
 	/* Give virtio_ring a chance to accept features. */
 	vring_transport_features(vdev);
 
+	/* Make sure there is are no mixed devices */
+	if (vm_dev->version == 2 &&
+			!__virtio_test_bit(vdev, VIRTIO_F_VERSION_1)) {
+		dev_err(&vdev->dev, "New virtio-mmio devices (version 2) must provide VIRTIO_F_VERSION_1 feature!\n");
+		return -EINVAL;
+	}
+
 	iowrite32be(1, vm_dev->base + VIRTIO_MMIO_DRIVER_FEATURES_SEL);
 	iowrite32be((u32)(vdev->features >> 32),
 			vm_dev->base + VIRTIO_MMIO_DRIVER_FEATURES);
@@ -159,7 +166,7 @@ static void vm_get(struct virtio_device *vdev, unsigned offset,
 		int i;
 
 		for (i = 0; i < len; i++)
-			ptr[i] = readb(base + offset + i);
+			ptr[i] = readb(base + offset + (len-i-1));
 		return;
 	}
 
@@ -169,17 +176,17 @@ static void vm_get(struct virtio_device *vdev, unsigned offset,
 		memcpy(buf, &b, sizeof b);
 		break;
 	case 2:
-		w = cpu_to_le16(ioread16be(base + offset));
+		w = cpu_to_le16(readw(base + offset));
 		memcpy(buf, &w, sizeof w);
 		break;
 	case 4:
-		l = cpu_to_le32(ioread32be(base + offset));
+		l = cpu_to_le32(readl(base + offset));
 		memcpy(buf, &l, sizeof l);
 		break;
 	case 8:
-		l = cpu_to_le32(ioread32be(base + offset));
+		l = cpu_to_le32(readl(base + offset));
 		memcpy(buf, &l, sizeof l);
-		l = cpu_to_le32(ioread32(base + offset + sizeof l));
+		l = cpu_to_le32(readl(base + offset + sizeof l));
 		memcpy(buf + sizeof l, &l, sizeof l);
 		break;
 	default:
@@ -201,7 +208,7 @@ static void vm_set(struct virtio_device *vdev, unsigned offset,
 		int i;
 
 		for (i = 0; i < len; i++)
-			writeb(ptr[i], base + offset + i);
+			writeb(ptr[i], base + offset + (len-i-1));
 
 		return;
 	}
@@ -213,17 +220,17 @@ static void vm_set(struct virtio_device *vdev, unsigned offset,
 		break;
 	case 2:
 		memcpy(&w, buf, sizeof w);
-		iowrite16be(le16_to_cpu(w), base + offset);
+		writew(le16_to_cpu(w), base + offset);
 		break;
 	case 4:
 		memcpy(&l, buf, sizeof l);
-		iowrite32be(le32_to_cpu(l), base + offset);
+		writel(le32_to_cpu(l), base + offset);
 		break;
 	case 8:
 		memcpy(&l, buf, sizeof l);
-		iowrite32be(le32_to_cpu(l), base + offset);
+		writel(le32_to_cpu(l), base + offset);
 		memcpy(&l, buf + sizeof l, sizeof l);
-		iowrite32be(le32_to_cpu(l), base + offset + sizeof l);
+		writel(le32_to_cpu(l), base + offset + sizeof l);
 		break;
 	default:
 		BUG();
